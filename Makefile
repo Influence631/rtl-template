@@ -20,6 +20,7 @@
 RTL_DIR    ?= rtl
 TB_DIR     ?= tb
 VENV       ?= $(HOME)/.venv/hdlenv
+STATE 	   ?= dump.surf.ron
 # top module name used by `make elab` (keep comments off this line: make
 # preserves the whitespace before a trailing `#`, which would corrupt $(TOP))
 TOP        ?= packet_filter
@@ -210,3 +211,9 @@ $(TB_DIR)/test_template.py: | $(TB_DIR)
 	$(file > $@,$(VSCODE_SETTINGS))
 	@echo "created $@"
 
+
+.PHONY: FORCE
+FORCE:
+
+surfer/%: FORCE
+	surfer sim_build/$*/dump.fst -s $(STATE)
