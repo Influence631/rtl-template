@@ -147,7 +147,7 @@ def test_template():
     # 2. rename this function to test_<block>
     # 3. delete the skip below and set the module name
     pytest.skip("template file: copy it per block, then remove this skip")
-    run("template", test_module="test_template", parameters={})
+    run(top="template", test_module="test_template", parameters={}) #e.g{WIDTH : 8}
 endef
 
 define GITIGNORE
