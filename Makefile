@@ -217,7 +217,8 @@ define VSCODE_SETTINGS
   "python.terminal.activateEnvironment": true,
 
   // Pylance defaults to "off"; without this nothing in $(TB_DIR)/ is checked.
-  "python.analysis.typeCheckingMode": "standard"
+  "python.analysis.typeCheckingMode": "standard",
+  "mypy-type-checker.reportingScope": "workspace"
 }
 endef
 
