@@ -79,7 +79,8 @@ elab: filelists
 # =============================================================================
 
 SETUP_FILES := $(TB_DIR)/common.py $(TB_DIR)/test_template.py \
-               .gitignore .rules.verible_lint .vscode/settings.json
+               .gitignore .rules.verible_lint .vscode/settings.json \
+               pyproject.toml
 
 setup: $(SETUP_FILES) | $(RTL_DIR)
 	@echo "setup: ready"
@@ -94,6 +95,8 @@ $(RTL_DIR) $(TB_DIR) .vscode:
 	@mkdir -p $@ && echo "created $@/"
 
 define COMMON_PY
+import os
+import random
 from pathlib import Path
 
 from cocotb_tools.runner import get_runner
@@ -105,17 +108,32 @@ RTL = ROOT / "$(RTL_DIR)"
 
 def run(top, test_module, sources=None, parameters=None):
     """Build `top` out of $(RTL_DIR)/ and run `test_module` against it."""
+    # Verilator seed must be non-zero. Override with SEED=<n> to reproduce a failure.
+    seed = int(os.environ.get("SEED") or random.randrange(1, 2**31))
+    print(f"[common] SEED={seed}")
+
     runner = get_runner("verilator")
     runner.build(
         sources=sources or [RTL / f"{top}.sv"],
         hdl_toplevel=top,
         parameters=parameters or {},
-        build_args=["--trace-fst", "--assert"],
+        build_args=[
+            "--trace-fst",
+            "--assert",
+            # randomize undriven/uninitialized signals and RTL X assignments
+            "--x-initial", "unique",
+            "--x-assign", "unique",
+        ],
         build_dir=ROOT / "sim_build" / top,
         always=True,
         waves=True,
     )
-    runner.test(hdl_toplevel=top, test_module=test_module, waves=True)
+    runner.test(
+        hdl_toplevel=top,
+        test_module=test_module,
+        waves=True,
+        plusargs=[f"+verilator+seed+{seed}", "+verilator+rand+reset+2"],
+    )
 endef
 
 define TEST_TEMPLATE_PY
@@ -126,7 +144,14 @@ from cocotb.triggers import RisingEdge
 
 from common import run
 
+dutTB:
+	def __init__(self, dut):
+		pass
 
+	@classmethod
+	async def create(dut):
+		return dutTB(dut)
+		
 @cocotb.test()
 async def passthrough(dut):
     cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
@@ -160,6 +185,8 @@ define GITIGNORE
 *.vpd
 obj_dir/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 *.log
 *.vvp
 *.png
@@ -187,8 +214,26 @@ define VSCODE_SETTINGS
 
   // cocotb lives in the hdlenv venv; point Pylance at it.
   "python.defaultInterpreterPath": "$(VENV)/bin/python",
-  "python.terminal.activateEnvironment": true
+  "python.terminal.activateEnvironment": true,
+
+  // Pylance defaults to "off"; without this nothing in $(TB_DIR)/ is checked.
+  "python.analysis.typeCheckingMode": "standard"
 }
+endef
+
+# Python tooling. Ruff config is deliberately absent: it lives in the user-level
+# ~/.config/ruff/ruff.toml so every repo shares one rule set. mypy's config has
+# to be per-repo because python_executable points at this project's venv.
+define PYPROJECT
+[tool.mypy]
+# cocotb lives in the hdlenv venv (uv-created, so no pip inside); pointing mypy
+# at it makes cocotb's shipped type hints resolve. Also fixes python_version.
+python_executable = "$(VENV)/bin/python"
+# without this, mypy silently skips every function that lacks annotations --
+# which is most of a cocotb testbench
+check_untyped_defs = true
+warn_unused_ignores = true
+files = ["$(TB_DIR)"]
 endef
 
 $(TB_DIR)/common.py: | $(TB_DIR)
@@ -209,6 +254,10 @@ $(TB_DIR)/test_template.py: | $(TB_DIR)
 
 .vscode/settings.json: | .vscode
 	$(file > $@,$(VSCODE_SETTINGS))
+	@echo "created $@"
+
+pyproject.toml:
+	$(file > $@,$(PYPROJECT))
 	@echo "created $@"
 
 
